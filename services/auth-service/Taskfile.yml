@@ -1,0 +1,38 @@
+version: '3'
+
+tasks:
+  help:
+    desc: Показать команды auth-service
+    cmds:
+      - |
+        echo "Auth Service - Команды:"
+        echo ""
+        echo "  task run     - Запустить локально"
+        echo "  task migrate - Применить миграции"
+        echo "  task test    - Запустить тесты"
+        echo "  task build   - Собрать бинарник"
+
+  run:
+    desc: Запустить сервис локально
+    cmds:
+      - echo "Запускаю auth-service..."
+      - go run ./cmd/app
+
+  migrate:
+    desc: Применить миграции
+    cmds:
+      - echo "Запускаю миграции..."
+      - go run ./cmd/migrator -command up
+
+  test:
+    desc: Запустить тесты
+    cmds:
+      - echo "Запускаю тесты..."
+      - go test ./...
+
+  build:
+    desc: Собрать бинарник
+    cmds:
+      - echo "Собираю бинарник..."
+      - go build -o bin/auth-service ./cmd/app
+      - go build -o bin/migrator ./cmd/migrator
