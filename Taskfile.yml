@@ -1,0 +1,42 @@
+version: '3'
+
+vars:
+  ENV_FILE: .env
+
+tasks:
+  up:
+    desc: Запустить все сервисы
+    cmds:
+      - echo "Запускаю инфраструктуру и сервисы..."
+      - docker compose up -d
+      - echo "Сервисы поднимаются. Проверьте логи task logs-auth"
+
+  rebuild:
+    desc: Пересобрать и запустить (при изменении кода или .env)
+    cmds:
+      - docker compose up -d --build --force-recreate
+
+  down:
+    desc: Остановить все сервисы
+    cmds:
+      - docker compose down
+
+  logs-auth:
+    desc: Логи только сервиса авторизации
+    cmds:
+      - docker logs -f huddle-auth-service
+
+  clean:
+    desc: Полная очистка (удаляет даже базу данных!)
+    cmds:
+      - docker compose down -v
+      - docker system prune -f
+      - echo "Все очищено, включая Volumes"
+
+  status:
+    desc: Проверить здоровье сервисов
+    cmds:
+      - echo "Проверка PostgreSQL:"
+      - docker exec huddle-postgres pg_isready -U postgres
+      - echo "Проверка Redis:"
+      - docker exec huddle-redis redis-cli ping
