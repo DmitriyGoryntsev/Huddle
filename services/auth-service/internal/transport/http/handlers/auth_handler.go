@@ -130,3 +130,23 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	log.Infow("User logged out", "user_id", claims.Sub, "jti", claims.JTI)
 	return c.JSON(http.StatusOK, echo.Map{"message": "logged out successfully"})
 }
+
+func (h *AuthHandler) Validate(c echo.Context) error {
+	// 1. Достаем claims из контекста ЗАПРОСА (так как middleware положил их туда через context.WithValue)
+	// Важно: тип должен точно совпадать с тем, что возвращает tokenSvc.ParseAccess
+	claims, ok := c.Request().Context().Value(middleware.UserClaimsKey).(*models.AccessTokenClaims)
+
+	if !ok {
+		// Если claims нет, значит что-то пошло не так в цепочке middleware
+		// Nginx получит 401 и заблокирует запрос
+		return c.NoContent(http.StatusUnauthorized)
+	}
+
+	// 2. Устанавливаем заголовок, который Nginx перехватит и пробросит в profile-service
+	// В твоем middleware используется claims.Sub (судя по логам),
+	// убедись, что в модели это поле называется так же.
+	c.Response().Header().Set("X-User-ID", claims.Sub)
+
+	// 3. Возвращаем 200 OK. Для Nginx это сигнал: "Пропускай!"
+	return c.NoContent(http.StatusOK)
+}
