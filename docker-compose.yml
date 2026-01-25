@@ -1,0 +1,120 @@
+version: "3.8"
+
+services:
+  # --- API GATEWAY ---
+  gateway:
+    image: nginx:1.25-alpine
+    container_name: huddle-gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - auth-service
+      - profile-service
+      
+  # --- INFRASTRUCTURE: POSTGRES ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: huddle-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${AUTH_DB_NAME}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${AUTH_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- INFRASTRUCTURE: REDIS ---
+  redis:
+    image: redis:7-alpine
+    container_name: huddle-redis
+    ports:
+      - "${REDIS_PORT}:6379"
+
+  # --- INFRASTRUCTURE: KAFKA ---
+  zookeeper:
+    image: wurstmeister/zookeeper
+    container_name: huddle-zookeeper
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: wurstmeister/kafka
+    container_name: huddle-kafka
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CREATE_TOPICS: "${KAFKA_TOPIC}:1:1"
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+
+  # --- SERVICE: AUTH ---
+  auth-service:
+    build: 
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: huddle-auth-service
+    environment:
+      - DB_HOST=${POSTGRES_HOST}
+      - DB_PORT=${POSTGRES_PORT}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${AUTH_DB_NAME}
+      - DB_SSLMODE=${POSTGRES_SSLMODE}
+      - HTTP_SERVER_PORT=${AUTH_HTTP_PORT}
+      - JWT_SECRET=${JWT_SECRET}
+    env_file:
+      - .env
+    ports:
+      - "${AUTH_HTTP_PORT}:${AUTH_HTTP_PORT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+    restart: on-failure
+
+  # --- SERVICE: PROFILE ---
+  profile-service:
+    build: 
+      context: ./services/profile-service
+      dockerfile: Dockerfile
+    container_name: huddle-profile-service
+    environment:
+      - DB_HOST=${POSTGRES_HOST}
+      - DB_PORT=${POSTGRES_PORT}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${PROFILE_DB_NAME}
+      - DB_SSLMODE=${POSTGRES_SSLMODE}
+      - HTTP_SERVER_PORT=${PROFILE_HTTP_PORT}
+    env_file:
+      - .env
+    ports:
+      - "${PROFILE_HTTP_PORT}:${PROFILE_HTTP_PORT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+    restart: on-failure
+
+volumes:
+  postgres_data:
