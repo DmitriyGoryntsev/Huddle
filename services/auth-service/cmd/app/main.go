@@ -1,4 +1,3 @@
-// cmd/main.go
 package main
 
 import (
@@ -21,42 +20,45 @@ import (
 	"auth-service/pkg/db/redis"
 	"auth-service/pkg/logger"
 
-	"github.com/labstack/echo/v4"
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )
 
 func main() {
-	// 1. Загрузка конфигурации
+	// Контекст для управления жизненным циклом приложения
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Загрузка конфигурации
 	cfg, err := config.New()
 	if err != nil {
 		panic(err)
 	}
 
-	// 2. Инициализация логгера
+	// Инициализация логгера
 	log, err := logger.New(cfg.Logger)
 	if err != nil {
 		panic(err)
 	}
 	defer log.Sync()
 
-	log.Infow("Starting auth-service", "version", "1.0.0", "env", cfg.Env)
+	log.Infow("Starting auth-service", "env", cfg.Env)
 
-	// 3. PostgreSQL
+	// Подключение к PostgreSQL
 	pg, err := postgres.NewPostgres(&cfg.Postgres, log.SugaredLogger)
 	if err != nil {
 		log.Fatal("Postgres connection failed: ", err)
 	}
 	defer pg.Close()
 
-	// 4. Redis
+	// Подключение к Redis
 	redisClient, err := redis.NewClient(&cfg.Redis, log.SugaredLogger)
 	if err != nil {
 		log.Fatal("Redis connection failed: ", err)
 	}
 	defer redisClient.Close()
 
-	// 5. TokenService
+	// Инициализация TokenService
 	tokenSvc, err := utils.NewTokenService(utils.TokenServiceConfig{
 		SigningKey: cfg.JWT.Secret,
 		AccessTTL:  cfg.JWT.TokenExpiry,
@@ -69,132 +71,86 @@ func main() {
 		log.Fatal("TokenService initialization failed: ", err)
 	}
 
-	// 6. Репозитории
+	// Инициализация репозиториев
 	userRepo := repository.NewUserRepository(pg, log.SugaredLogger)
 	outboxRepo := repository.NewOutboxRepository(pg)
 
-	// 7. AuthService с Outbox поддержкой
-	authSvc := service.NewAuthService(
-		userRepo,
-		outboxRepo,
-		tokenSvc,
-		log.SugaredLogger,
-	)
+	// Инициализация сервисов
+	authSvc := service.NewAuthService(userRepo, outboxRepo, tokenSvc, log.SugaredLogger)
 
-	// 8. Kafka Producer для Outbox Publisher
+	// Настройка Kafka Writer
 	kafkaWriter := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:   cfg.Kafka.Brokers,
-		Topic:     cfg.Kafka.Topic,
-		BatchSize: cfg.Kafka.BatchSize,
-		// Асинхронная запись с подтверждением
+		Brokers:      cfg.Kafka.Brokers,
+		Topic:        cfg.Kafka.Topic,
+		BatchSize:    cfg.Kafka.BatchSize,
 		Async:        false,
 		WriteTimeout: 10 * time.Second,
-		ReadTimeout:  10 * time.Second,
 	})
 
-	// 9. Outbox Publisher
-	outboxPublisher := service.NewOutboxPublisher(
-		outboxRepo,
-		kafkaWriter,
-		log.SugaredLogger,
-	)
+	// Инициализация Outbox Publisher
+	outboxPublisher := service.NewOutboxPublisher(outboxRepo, kafkaWriter, log.SugaredLogger)
 
-	// 10. Запускаем Outbox Publisher
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	// Запуск фоновых задач
 	go func() {
 		log.Infow("Starting Outbox Publisher")
 		outboxPublisher.Start(ctx)
 	}()
 
-	// 11. Graceful shutdown для Kafka Writer
-	go func() {
-		<-ctx.Done()
-		log.Infow("Shutting down Kafka writer")
-		if err := kafkaWriter.Close(); err != nil {
-			log.Errorw("Failed to close Kafka writer", "error", err)
-		}
-	}()
-
-	// 12. AuthHandler
+	// Инициализация обработчиков (Handlers)
 	authHandler := handlers.NewAuthHandler(authSvc, log.SugaredLogger)
 
-	// 13. HTTP Router
+	// Настройка HTTP транспорта и Middleware
 	routerCfg := http_transport.NewRouterConfig(cfg)
 	router := http_transport.NewRouter(routerCfg, log)
-
-	// 14. Middleware
 	router.Echo().Use(middleware.AuthMiddleware(tokenSvc, log.SugaredLogger))
 
-	// 15. Routes
+	// Регистрация маршрутов
 	routes.SetupAuthRoutes(router.Echo(), authHandler)
 
-	// 16. Health Check с информацией о Outbox
-	router.Echo().GET("/health", func(c echo.Context) error {
-		// Проверяем количество pending событий
-		pendingEvents, err := outboxRepo.GetPendingEvents(c.Request().Context(), 1)
-		if err != nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
-				"status":  "degraded",
-				"time":    time.Now().Format(time.RFC3339),
-				"details": "outbox health check failed",
-			})
-		}
-
-		return c.JSON(http.StatusOK, map[string]interface{}{
-			"status":         "ok",
-			"time":           time.Now().Format(time.RFC3339),
-			"pending_events": len(pendingEvents),
-			"kafka_brokers":  cfg.Kafka.Brokers,
-			"kafka_topic":    cfg.Kafka.Topic,
-		})
-	})
-
-	// 18. Запуск сервера с retry
+	// Запуск HTTP сервера в отдельной горутине
 	go runServerWithRetry(router, cfg, log.SugaredLogger)
 
-	// 19. Graceful Shutdown
+	// Ожидание сигналов завершения (Graceful Shutdown)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Infow("Shutting down server...")
 
+	log.Infow("Shutting down auth-service...")
+
+	// Контекст для корректного завершения работы
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 
-	// 20. Останавливаем Outbox Publisher
+	// Остановка фоновых процессов
 	cancel()
 
-	// 21. Останавливаем HTTP сервер
+	// Закрытие ресурсов Kafka
+	if err := kafkaWriter.Close(); err != nil {
+		log.Errorw("Failed to close Kafka writer", "error", err)
+	}
+
+	// Остановка HTTP сервера
 	if err := router.ShuttingDown(shutdownCtx); err != nil {
 		log.Errorw("Server forced to shutdown", "error", err)
-	} else {
-		log.Infow("Server gracefully stopped")
 	}
 
 	log.Infow("Auth service stopped")
 }
 
-// runServerWithRetry — запуск HTTP-сервера с retry
 func runServerWithRetry(router *http_transport.Router, cfg *config.Config, log *zap.SugaredLogger) {
 	maxRetries := cfg.HTTPServer.MaxRetries
 	retryDelay := time.Duration(cfg.HTTPServer.RetryDelay) * time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.Infow("Starting HTTP server",
-			"port", cfg.HTTPServer.Port,
-			"attempt", attempt,
-			"max_retries", maxRetries)
+		log.Infow("Starting HTTP server", "port", cfg.HTTPServer.Port, "attempt", attempt)
 
 		if err := router.Run(); err != nil && err != http.ErrServerClosed {
 			log.Errorw("Server failed", "attempt", attempt, "error", err)
 			if attempt < maxRetries {
-				log.Infow("Retrying in", "delay_seconds", retryDelay.Seconds())
 				time.Sleep(retryDelay)
 				continue
 			}
-			log.Fatalf("Server failed after all retries: %v", err)
+			log.Fatalf("Server failed after all retries")
 		}
 		break
 	}
