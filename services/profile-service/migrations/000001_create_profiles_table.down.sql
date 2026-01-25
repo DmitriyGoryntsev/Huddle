@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS profile.profiles;
+DROP SCHEMA IF EXISTS profile;
