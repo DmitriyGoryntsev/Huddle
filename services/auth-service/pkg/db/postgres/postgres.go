@@ -19,10 +19,11 @@ type DB struct {
 }
 
 func NewPostgres(cfg *config.PostgresConfig, logger *zap.SugaredLogger) (*DB, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode,
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.DBName, cfg.SSLMode,
 	)
+
+	logger.Infof("Connecting to Postgres with Host: %s, Port: %s, DB: %s", cfg.Host, cfg.Port, cfg.DBName)
 
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -32,7 +33,7 @@ func NewPostgres(cfg *config.PostgresConfig, logger *zap.SugaredLogger) (*DB, er
 	poolCfg.MaxConns = cfg.MaxConns
 	poolCfg.MinConns = cfg.MinConns
 
-	for attempt := 1; attempt < cfg.MaxRetries; attempt++ {
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
 		pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 		if err != nil {
 			logger.Warnf("Failed to create pool on attempt %d: %v", attempt, err)

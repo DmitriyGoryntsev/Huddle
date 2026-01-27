@@ -19,10 +19,11 @@ type DB struct {
 }
 
 func NewPostgres(cfg *config.PostgresConfig, logger *zap.SugaredLogger) (*DB, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode,
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.DBName, cfg.SSLMode,
 	)
+
+	logger.Infof("Connecting to Postgres with Host: %s, Port: %s, DB: %s", cfg.Host, cfg.Port, cfg.DBName)
 
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
