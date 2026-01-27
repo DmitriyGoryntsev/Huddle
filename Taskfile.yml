@@ -9,7 +9,7 @@ tasks:
     cmds:
       - echo "Запускаю инфраструктуру и сервисы..."
       - docker compose up -d
-      - echo "Сервисы поднимаются. Проверьте логи task logs-auth"
+      - echo "Сервисы поднимаются. Проверьте логи task logs-auth/profile"
 
   rebuild:
     desc: Пересобрать и запустить (при изменении кода или .env)
@@ -26,6 +26,10 @@ tasks:
     cmds:
       - docker logs -f huddle-auth-service
 
+  logs-profile:
+    desc: Логи только серивиса профилей
+    cmds:
+      - docker logs -f huddle-profile-service
   clean:
     desc: Полная очистка (удаляет даже базу данных!)
     cmds:
