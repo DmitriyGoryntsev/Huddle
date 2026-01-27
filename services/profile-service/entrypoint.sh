@@ -1,24 +1,27 @@
 #!/bin/sh
 set -e
 
-sleep 2
+BINARY=$1
 
-# Ждем доступности базы данных
-echo "⏳ Waiting for database ($DB_HOST:$DB_PORT) to start..."
-
-until nc -z -v -w30 "$DB_HOST" "$DB_PORT"; do
-  echo "Waiting for database connection..."
-  sleep 2
+echo "⏳ Waiting for PostgreSQL ($POSTGRES_HOST:$POSTGRES_PORT)..."
+until nc -z "$POSTGRES_HOST" "$POSTGRES_PORT"; do
+  sleep 1
 done
+echo "✅ PostgreSQL is ready!"
 
-echo "🟢 Database is up!"
+echo "⏳ Waiting for Redis ($REDIS_HOST:$REDIS_PORT)..."
+until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
+  sleep 1
+done
+echo "✅ Redis is ready!"
 
-# Формируем URL из универсальных переменных
-DB_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${DB_SSLMODE}"
+DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DBNAME}?sslmode=${POSTGRES_SSLMODE}"
 
-echo "🔄 Running migrations for profile-service..."
-# Запускаем мигратор
-./bin/migrator -database "$DB_URL" -path migrations
+echo "📝 Running database migrations..."
+/app/bin/migrator \
+  -database "$DATABASE_URL" \
+  -path /app/migrations \
+  -command up
 
-echo "🚀 Starting profile-service..."
-exec "$@"
+echo "🚀 Starting application..."
+exec "$BINARY"
