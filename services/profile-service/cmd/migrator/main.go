@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"profile-service/internal/config"
 	"profile-service/pkg/logger"
 
@@ -36,9 +37,19 @@ func main() {
 	flag.Parse()
 
 	if databaseURL == "" {
-		log.Fatal("database URL is required")
+		databaseURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+			cfg.Postgres.User,
+			cfg.Postgres.Password,
+			cfg.Postgres.Host,
+			cfg.Postgres.Port,
+			cfg.Postgres.DBName,
+			cfg.Postgres.SSLMode,
+		)
 	}
 
+	if databaseURL == "" || cfg.Postgres.Host == "" {
+		log.Fatal("database URL is required (check flags or ENV variables)")
+	}
 	m, err := migrate.New(
 		"file://"+migrationsPath,
 		databaseURL,

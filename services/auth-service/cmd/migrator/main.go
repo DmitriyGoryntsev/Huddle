@@ -4,6 +4,7 @@ import (
 	"auth-service/internal/config"
 	"auth-service/pkg/logger"
 	"flag"
+	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -36,7 +37,18 @@ func main() {
 	flag.Parse()
 
 	if databaseURL == "" {
-		log.Fatal("database URL is required")
+		databaseURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+			cfg.Postgres.User,
+			cfg.Postgres.Password,
+			cfg.Postgres.Host,
+			cfg.Postgres.Port,
+			cfg.Postgres.DBName,
+			cfg.Postgres.SSLMode,
+		)
+	}
+
+	if databaseURL == "" || cfg.Postgres.Host == "" {
+		log.Fatal("database URL is required (check flags or ENV variables)")
 	}
 
 	m, err := migrate.New(
