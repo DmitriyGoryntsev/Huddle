@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"auth-service/internal/config"
-	"auth-service/internal/middleware"
 	"auth-service/internal/repository"
 	"auth-service/internal/routes"
 	"auth-service/internal/service"
@@ -102,10 +101,9 @@ func main() {
 	// Настройка HTTP транспорта и Middleware
 	routerCfg := http_transport.NewRouterConfig(cfg)
 	router := http_transport.NewRouter(routerCfg, log)
-	router.Echo().Use(middleware.AuthMiddleware(tokenSvc, log.SugaredLogger))
 
 	// Регистрация маршрутов
-	routes.SetupAuthRoutes(router.Echo(), authHandler)
+	routes.SetupAuthRoutes(router.Echo(), authHandler, tokenSvc, log.SugaredLogger)
 
 	// Запуск HTTP сервера в отдельной горутине
 	go runServerWithRetry(router, cfg, log.SugaredLogger)
