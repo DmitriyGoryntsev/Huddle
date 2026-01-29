@@ -34,7 +34,7 @@ func NewProfileRepository(db *postgres.DB, logger *zap.SugaredLogger) ProfileRep
 func (r *profileRepository) Create(ctx context.Context, profile *models.Profile) error {
 	query := `
 		INSERT INTO profile.profiles (user_id, first_name, last_name, avatar_url, bio, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, NOW(), NOW())
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 		ON CONFLICT (user_id) DO NOTHING
 	`
 
