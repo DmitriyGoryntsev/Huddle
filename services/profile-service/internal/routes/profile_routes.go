@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"profile-service/internal/middleware"
 	"profile-service/internal/transport/http/handlers"
 
 	"github.com/labstack/echo/v4"
@@ -11,7 +12,7 @@ func SetupProfileRoutes(router *echo.Echo, profileHandler *handlers.ProfileHandl
 	api := router.Group("/api/v1")
 
 	// Группа для авторизации
-	profiles := api.Group("/profileS")
+	profiles := api.Group("/profiles", middleware.AuthMiddleware())
 	{
 		// GET /api/v1/profiles/me -> Получить СВОЙ профиль
 		profiles.GET("/me", profileHandler.GetProfile)
