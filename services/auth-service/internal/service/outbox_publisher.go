@@ -60,7 +60,6 @@ func (p *OutboxPublisher) publishBatch(ctx context.Context) error {
 	for _, event := range events {
 		msg := kafka.Message{
 			Key:   []byte(event.ID.String()),
-			Topic: "user-events",
 			Value: event.Payload,
 		}
 
