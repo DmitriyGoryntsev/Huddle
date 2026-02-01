@@ -1,33 +1,42 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"event-service/internal/middleware"
 	"event-service/internal/models"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
 type EventService interface {
-	Create(event *models.Event) error
-	GetByID(id uuid.UUID) (*models.Event, error)
-	List(filter models.EventFilter) ([]models.Event, error)
-	Delete(eventID, userID uuid.UUID) error
-	Join(eventID, userID uuid.UUID) error
-	Leave(eventID, userID uuid.UUID) error
-	UpdateParticipantStatus(eventID, targetUserID, creatorID uuid.UUID, status models.ParticipantStatus) error
-	GetUsersEvents(userID uuid.UUID) ([]models.Event, error)
+	Create(ctx context.Context, event *models.Event) error
+	GetByID(ctx context.Context, id uuid.UUID) (*models.Event, error)
+	List(ctx context.Context, filter models.EventFilter) ([]*models.Event, error)
+	Delete(ctx context.Context, eventID, userID uuid.UUID) error
+	Join(ctx context.Context, eventID, userID uuid.UUID) error
+	Leave(ctx context.Context, eventID, userID uuid.UUID) error
+	UpdateParticipantStatus(ctx context.Context, eventID, targetUserID, creatorID uuid.UUID, status models.ParticipantStatus) error
+	GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]models.EventParticipant, error)
+	GetUsersEvents(ctx context.Context, userID uuid.UUID) ([]*models.Event, error)
 }
 
 type EventHandler struct {
-	service EventService
+	service   EventService
+	validator *validator.Validate
 }
 
 func NewEventHandler(service EventService) *EventHandler {
-	return &EventHandler{service: service}
+	return &EventHandler{
+		service:   service,
+		validator: validator.New(),
+	}
 }
 
 // 1. Создание события
@@ -41,6 +50,16 @@ func (h *EventHandler) CreateEvent(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		log.Error("Failed to bind create event request", "error", err)
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
+	}
+	if err := h.validator.Struct(req); err != nil {
+		log.Warn("Validation failed", "error", err)
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	}
+	if req.StartTime.Before(time.Now()) {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "start_time must be in the future"})
+	}
+	if req.Price < 0 {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "price cannot be negative"})
 	}
 
 	event := &models.Event{
@@ -57,9 +76,12 @@ func (h *EventHandler) CreateEvent(c echo.Context) error {
 		Status:           models.EventStatusOpen,
 	}
 
-	if err := h.service.Create(event); err != nil {
+	if err := h.service.Create(c.Request().Context(), event); err != nil {
 		log.Error("Failed to create event in service", "error", err)
-		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to create event"})
+		if strings.Contains(err.Error(), "does not exist") {
+			return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 
 	log.Info("Event created successfully", "event_id", event.ID)
@@ -83,7 +105,7 @@ func (h *EventHandler) ListEvents(c echo.Context) error {
 		CategorySlug: c.QueryParam("category"),
 	}
 
-	events, err := h.service.List(filter)
+	events, err := h.service.List(c.Request().Context(), filter)
 	if err != nil {
 		log.Error("Failed to list events", "error", err)
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to fetch events"})
@@ -102,7 +124,7 @@ func (h *EventHandler) GetEvent(c echo.Context) error {
 
 	log.Info("Fetching event details", "event_id", id)
 
-	event, err := h.service.GetByID(id)
+	event, err := h.service.GetByID(c.Request().Context(), id)
 	if err != nil {
 		log.Warn("Event not found", "event_id", id)
 		return c.JSON(http.StatusNotFound, echo.Map{"error": "event not found"})
@@ -119,7 +141,7 @@ func (h *EventHandler) DeleteEvent(c echo.Context) error {
 
 	log.Info("Attempting to delete event", "event_id", eventID, "user_id", userID)
 
-	if err := h.service.Delete(eventID, userID); err != nil {
+	if err := h.service.Delete(c.Request().Context(), eventID, userID); err != nil {
 		log.Error("Failed to delete event", "error", err)
 		return c.JSON(http.StatusForbidden, echo.Map{"error": "could not delete event"})
 	}
@@ -135,7 +157,7 @@ func (h *EventHandler) JoinEvent(c echo.Context) error {
 
 	log.Info("User joining event", "event_id", eventID, "user_id", userID)
 
-	if err := h.service.Join(eventID, userID); err != nil {
+	if err := h.service.Join(c.Request().Context(), eventID, userID); err != nil {
 		log.Error("Failed to join event", "error", err)
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
@@ -151,7 +173,7 @@ func (h *EventHandler) LeaveEvent(c echo.Context) error {
 
 	log.Info("User leaving event", "event_id", eventID, "user_id", userID)
 
-	if err := h.service.Leave(eventID, userID); err != nil {
+	if err := h.service.Leave(c.Request().Context(), eventID, userID); err != nil {
 		log.Error("Failed to leave event", "error", err)
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to leave event"})
 	}
@@ -173,7 +195,7 @@ func (h *EventHandler) UpdateParticipantStatus(c echo.Context) error {
 
 	log.Info("Updating participant status", "event_id", eventID, "target_user", targetUserID, "status", req.Status)
 
-	if err := h.service.UpdateParticipantStatus(eventID, targetUserID, creatorID, req.Status); err != nil {
+	if err := h.service.UpdateParticipantStatus(c.Request().Context(), eventID, targetUserID, creatorID, req.Status); err != nil {
 		log.Error("Failed to update status", "error", err)
 		return c.JSON(http.StatusForbidden, echo.Map{"error": err.Error()})
 	}
@@ -181,14 +203,33 @@ func (h *EventHandler) UpdateParticipantStatus(c echo.Context) error {
 	return c.JSON(http.StatusOK, echo.Map{"status": "updated"})
 }
 
-// 8. Мои события
+// 8. Список участников события
+func (h *EventHandler) GetEventParticipants(c echo.Context) error {
+	log := middleware.GetLoggerFromCtx(c.Request().Context())
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid event id"})
+	}
+
+	participants, err := h.service.GetEventParticipants(c.Request().Context(), eventID)
+	if err != nil {
+		log.Errorw("Failed to get participants", "event_id", eventID, "error", err)
+		if err.Error() == "event not found" {
+			return c.JSON(http.StatusNotFound, echo.Map{"error": "event not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to fetch participants"})
+	}
+	return c.JSON(http.StatusOK, participants)
+}
+
+// 9. Мои события
 func (h *EventHandler) GetMyEvents(c echo.Context) error {
 	log := middleware.GetLoggerFromCtx(c.Request().Context())
 	userID := uuid.MustParse(c.Request().Header.Get("X-User-ID"))
 
 	log.Info("Fetching user's events", "user_id", userID)
 
-	events, err := h.service.GetUsersEvents(userID)
+	events, err := h.service.GetUsersEvents(c.Request().Context(), userID)
 	if err != nil {
 		log.Error("Failed to fetch user events", "error", err)
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to fetch events"})

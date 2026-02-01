@@ -22,29 +22,25 @@ import (
 )
 
 func main() {
-	// Загрузка конфигурации
 	cfg, err := config.New()
 	if err != nil {
 		panic(err)
 	}
 
-	// Инициализация логгера
 	log, err := logger.New(cfg.Logger)
 	if err != nil {
 		panic(err)
 	}
 	defer log.Sync()
 
-	log.Infow("Starting profile-service", "env", cfg.Env)
+	log.Infow("Starting event-service", "env", cfg.Env)
 
-	// Подключение к PostgreSQL
 	pg, err := postgres.NewPostgres(&cfg.Postgres, log.SugaredLogger)
 	if err != nil {
 		log.Fatal("Postgres connection failed: ", err)
 	}
 	defer pg.Close()
 
-	// Подключение к Redis
 	redisClient, err := redis.NewClient(&cfg.Redis, log.SugaredLogger)
 	if err != nil {
 		log.Warnw("Redis connection failed (optional): ", "error", err)
@@ -52,43 +48,34 @@ func main() {
 		defer redisClient.Close()
 	}
 
-	// Инициализация репозиториев
-	profileRepo := repository.NewProfileRepository(pg, log.SugaredLogger)
+	eventRepo := repository.NewEventRepository(pg, log.SugaredLogger)
+	categoryRepo := repository.NewCategoryRepository(pg, log.SugaredLogger)
+	eventSvc := service.NewEventService(eventRepo, log.SugaredLogger)
+	eventHandler := handlers.NewEventHandler(eventSvc)
+	categoryHandler := handlers.NewCategoryHandler(categoryRepo)
 
-	// Инициализация сервисов
-	profileSvc := service.NewProfileService(profileRepo, log.SugaredLogger)
-
-	// Инициализация обработчиков (Handlers)
-	profileHandler := handlers.NewProfileHandler(profileSvc, log.SugaredLogger)
-
-	// Настройка HTTP транспорта и Middleware
 	routerCfg := http_transport.NewRouterConfig(cfg)
 	router := http_transport.NewRouter(routerCfg, log)
-	// Примечание: Здесь можно добавить AuthMiddleware, если профилю нужно валидировать токены от Auth-service
 
-	// Регистрация маршрутов
-	routes.SetupProfileRoutes(router.Echo(), profileHandler)
+	routes.SetupEventRoutes(router.Echo(), eventHandler, categoryHandler)
 
-	// Запуск HTTP сервера в отдельной горутине
 	go runServerWithRetry(router, cfg, log.SugaredLogger)
+	go runExpiredEventsWorker(eventRepo, log.SugaredLogger)
 
-	// Ожидание сигналов завершения (Graceful Shutdown)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Infow("Shutting down profile-service...")
+	log.Infow("Shutting down event-service...")
 
-	// Контекст для корректного завершения работы
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 
-	// Остановка HTTP сервера
 	if err := router.ShuttingDown(shutdownCtx); err != nil {
 		log.Errorw("Server forced to shutdown", "error", err)
 	}
 
-	log.Infow("Profile service stopped")
+	log.Infow("Event service stopped")
 }
 
 func runServerWithRetry(router *http_transport.Router, cfg *config.Config, log *zap.SugaredLogger) {
@@ -107,5 +94,22 @@ func runServerWithRetry(router *http_transport.Router, cfg *config.Config, log *
 			log.Fatalf("Server failed after all retries")
 		}
 		break
+	}
+}
+
+func runExpiredEventsWorker(repo repository.EventRepository, log *zap.SugaredLogger) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		n, err := repo.MarkExpiredAsFinished(ctx)
+		cancel()
+		if err != nil {
+			log.Errorw("Failed to mark expired events", "error", err)
+			continue
+		}
+		if n > 0 {
+			log.Infow("Marked expired events as finished", "count", n)
+		}
 	}
 }

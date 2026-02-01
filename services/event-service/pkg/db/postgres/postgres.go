@@ -100,6 +100,17 @@ func (db *DB) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx
 	return result.(pgx.Row)
 }
 
+func (db *DB) Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
+	result, err := db.cb.Execute(func() (interface{}, error) {
+		return db.Pool.Query(ctx, sql, args...)
+	})
+	if err != nil {
+		db.logger.Errorf("Circuit Breaker rejected Query: %v", err)
+		return nil, err
+	}
+	return result.(pgx.Rows), nil
+}
+
 func (db *DB) Exec(ctx context.Context, sql string, args ...interface{}) error {
 	_, err := db.cb.Execute(func() (interface{}, error) {
 		_, err := db.Pool.Exec(ctx, sql, args...)

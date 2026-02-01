@@ -7,13 +7,13 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func SetupEventRoutes(router *echo.Echo, eventHandler *handlers.EventHandler) {
+func SetupEventRoutes(router *echo.Echo, eventHandler *handlers.EventHandler, categoryHandler *handlers.CategoryHandler) {
 	// Группа с авторизацией (Nginx уже проверил JWT, нам нужно просто вытащить ID)
 	api := router.Group("/api/v1", middleware.AuthMiddleware())
 
 	events := api.Group("/events")
 	{
-		// Создать (сохраним координаты из тела запроса)
+		// Создать 
 		events.POST("", eventHandler.CreateEvent)
 
 		// Поиск на карте: GET /api/v1/events?lat=55.75&lon=37.61&radius=1000
@@ -25,6 +25,7 @@ func SetupEventRoutes(router *echo.Echo, eventHandler *handlers.EventHandler) {
 		// Работа с участниками
 		participation := events.Group("/:id/participants")
 		{
+			participation.GET("", eventHandler.GetEventParticipants)
 			participation.POST("", eventHandler.JoinEvent)
 			participation.DELETE("", eventHandler.LeaveEvent)
 
@@ -36,5 +37,10 @@ func SetupEventRoutes(router *echo.Echo, eventHandler *handlers.EventHandler) {
 	userEvents := api.Group("/my-events")
 	{
 		userEvents.GET("", eventHandler.GetMyEvents)
+	}
+
+	categories := api.Group("/categories")
+	{
+		categories.GET("", categoryHandler.ListCategories)
 	}
 }
