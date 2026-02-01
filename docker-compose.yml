@@ -14,6 +14,7 @@ services:
     depends_on:
       - auth-service
       - profile-service
+      - event-service
     networks:
       - huddle-net
 
@@ -21,8 +22,10 @@ services:
   # POSTGRES
   # =========================
   postgres:
-    image: postgres:15-alpine
+    image: postgis/postgis:15-3.3-alpine
     container_name: huddle-postgres
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -76,6 +79,11 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - huddle-net
 
@@ -129,7 +137,33 @@ services:
       redis:
         condition: service_started
       kafka:
+        condition: service_healthy
+    networks:
+      - huddle-net
+  # =========================
+  # EVENT SERVICE
+  # =========================
+event-service:
+    build:
+      context: ./services/event-service
+    container_name: huddle-event-service
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DBNAME: ${EVENT_DB_NAME} 
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      HTTP_SERVER_PORT: ${EVENT_HTTP_PORT}
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_started
+      kafka:
+        condition: service_healthy
     networks:
       - huddle-net
 
