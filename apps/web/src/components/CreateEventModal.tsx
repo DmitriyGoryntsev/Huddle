@@ -1,192 +1,58 @@
-import { useState, useEffect } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { eventsApi, type Category } from '@/lib/api'
+import React, { useState } from 'react';
+import { X, MapPin } from 'lucide-react';
+import api from '../api/client';
 
-interface CreateEventModalProps {
-  initialCoords: { lat: number; lon: number } | null
-  categories: Category[]
-  onClose: () => void
-  onCreated: () => void
-}
+export default function CreateEventModal({ isOpen, onClose, coords, locationName, onSuccess }: any) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [maxParticipants, setMaxParticipants] = useState(10);
+  const [startTime, setStartTime] = useState('');
 
-export default function CreateEventModal({ initialCoords, categories, onClose, onCreated }: CreateEventModalProps) {
-  const queryClient = useQueryClient()
-  const [form, setForm] = useState({
-    category_id: categories[0]?.id ?? 0,
-    title: '',
-    description: '',
-    lat: 55.7558,
-    lon: 37.6173,
-    start_time: '',
-    max_participants: 4,
-    price: 0,
-    requires_approval: false,
-  })
-  const [error, setError] = useState('')
+  if (!isOpen) return null;
 
-  useEffect(() => {
-    if (initialCoords) {
-      setForm((f) => ({ ...f, lat: initialCoords.lat, lon: initialCoords.lon }))
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = {
+      title,
+      description,
+      lat: coords[0],
+      lon: coords[1],
+      start_time: new Date(startTime).toISOString(),
+      max_participants: Number(maxParticipants),
+      category_id: 1,
+      price: 0
+    };
+
+    try {
+      await api.post('/events', payload);
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      alert('Ошибка: ' + (err.response?.data?.error || 'проверьте поля'));
     }
-  }, [initialCoords])
-
-  const createMu = useMutation({
-    mutationFn: eventsApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['events'] })
-      queryClient.invalidateQueries({ queryKey: ['my-events'] })
-      onCreated()
-    },
-    onError: (err) => setError(err instanceof Error ? err.message : 'Ошибка'),
-  })
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    if (!form.start_time) {
-      setError('Укажите время начала')
-      return
-    }
-    createMu.mutate({
-      ...form,
-      start_time: new Date(form.start_time).toISOString(),
-    })
-  }
-
-  const subcategories = categories.filter((c) => c.parent_id != null)
+  };
 
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Создать событие</h2>
-            <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-2xl">
-              ×
-            </button>
+    <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={onClose} />
+      <div className="relative w-full max-w-lg bg-[#0a0a0a] border border-[#D8E983]/30 p-8 rounded-[2.5rem] shadow-2xl">
+        <h2 className="text-3xl font-black text-[#D8E983] italic uppercase mb-6">Новый движ</h2>
+        {locationName && (
+          <div className="flex items-center gap-2 mb-6 p-4 bg-[#D8E983]/5 rounded-2xl border border-[#D8E983]/20">
+            <MapPin size={18} className="text-[#D8E983]" />
+            <span className="text-xs text-[#D8E983] font-bold uppercase">{locationName}</span>
           </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Категория</label>
-              <select
-                value={form.category_id}
-                onChange={(e) => setForm((f) => ({ ...f, category_id: Number(e.target.value) }))}
-                className="w-full px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-huddle-500"
-                required
-              >
-                {subcategories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-                {subcategories.length === 0 &&
-                  categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Название</label>
-              <input
-                type="text"
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                className="w-full px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-huddle-500"
-                placeholder="Например: Падл в парке"
-                required
-                minLength={3}
-                maxLength={100}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Описание</label>
-              <textarea
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                className="w-full px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-huddle-500"
-                rows={2}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Время начала</label>
-              <input
-                type="datetime-local"
-                value={form.start_time}
-                onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
-                className="w-full px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-huddle-500"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Макс. участников</label>
-              <input
-                type="number"
-                min={2}
-                value={form.max_participants}
-                onChange={(e) => setForm((f) => ({ ...f, max_participants: Number(e.target.value) }))}
-                className="w-full px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-huddle-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Стоимость (₽)</label>
-              <input
-                type="number"
-                min={0}
-                step={0.01}
-                value={form.price}
-                onChange={(e) => setForm((f) => ({ ...f, price: Number(e.target.value) }))}
-                className="w-full px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-huddle-500"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="req"
-                checked={form.requires_approval}
-                onChange={(e) => setForm((f) => ({ ...f, requires_approval: e.target.checked }))}
-                className="rounded"
-              />
-              <label htmlFor="req" className="text-sm text-stone-700">
-                Требуется подтверждение участников
-              </label>
-            </div>
-
-            <p className="text-xs text-stone-500">
-              Координаты: {form.lat.toFixed(5)}, {form.lon.toFixed(5)} (выберите место на карте)
-            </p>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 py-2 rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50"
-              >
-                Отмена
-              </button>
-              <button
-                type="submit"
-                disabled={createMu.isPending}
-                className="flex-1 py-2 rounded-lg bg-huddle-600 text-white font-medium hover:bg-huddle-700 disabled:opacity-50"
-              >
-                {createMu.isPending ? 'Создание...' : 'Создать'}
-              </button>
-            </div>
-          </form>
-        </div>
+        )}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input placeholder="НАЗВАНИЕ" required className="w-full bg-[#141414] p-5 rounded-2xl text-white border border-white/5 outline-none focus:border-[#D8E983]/50 font-bold text-xs" onChange={e => setTitle(e.target.value)} />
+          <textarea placeholder="ОПИСАНИЕ" required rows={3} className="w-full bg-[#141414] p-5 rounded-2xl text-white border border-white/5 outline-none focus:border-[#D8E983]/50 font-bold text-xs resize-none" onChange={e => setDescription(e.target.value)} />
+          <div className="grid grid-cols-2 gap-4">
+            <input type="datetime-local" required className="bg-[#141414] p-5 rounded-2xl text-white border border-white/5 text-xs font-bold" onChange={e => setStartTime(e.target.value)} />
+            <input type="number" placeholder="МЕСТ" required className="bg-[#141414] p-5 rounded-2xl text-white border border-white/5 text-xs font-bold" value={maxParticipants} onChange={e => setMaxParticipants(Number(e.target.value))} />
+          </div>
+          <button type="submit" className="w-full bg-[#D8E983] py-6 rounded-2xl font-black uppercase text-black hover:bg-[#FFFBB1] transition-all shadow-xl mt-6">Опубликовать</button>
+        </form>
       </div>
     </div>
-  )
+  );
 }

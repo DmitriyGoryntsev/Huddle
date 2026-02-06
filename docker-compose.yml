@@ -1,9 +1,5 @@
-version: "3.9"
-
 services:
-  # =========================
   # API GATEWAY (NGINX)
-  # =========================
   gateway:
     image: nginx:1.25-alpine
     container_name: huddle-gateway
@@ -15,12 +11,23 @@ services:
       - auth-service
       - profile-service
       - event-service
+      - web
     networks:
       - huddle-net
 
-  # =========================
+  # FRONTEND
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: huddle-web
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules 
+    networks:
+      - huddle-net
+
   # POSTGRES
-  # =========================
   postgres:
     image: postgis/postgis:15-3.3-alpine
     container_name: huddle-postgres
@@ -41,18 +48,14 @@ services:
     networks:
       - huddle-net
 
-  # =========================
   # REDIS
-  # =========================
   redis:
     image: redis:7-alpine
     container_name: huddle-redis
     networks:
       - huddle-net
 
-  # =========================
   # ZOOKEEPER
-  # =========================
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     container_name: huddle-zookeeper
@@ -62,9 +65,7 @@ services:
     networks:
       - huddle-net
 
-  # =========================
   # KAFKA
-  # =========================
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     container_name: huddle-kafka
@@ -87,9 +88,7 @@ services:
     networks:
       - huddle-net
 
-  # =========================
   # AUTH SERVICE
-  # =========================
   auth-service:
     build:
       context: ./services/auth-service
@@ -114,9 +113,7 @@ services:
     networks:
       - huddle-net
 
-  # =========================
   # PROFILE SERVICE
-  # =========================
   profile-service:
     build:
       context: ./services/profile-service
@@ -140,10 +137,9 @@ services:
         condition: service_healthy
     networks:
       - huddle-net
-  # =========================
+
   # EVENT SERVICE
-  # =========================
-event-service:
+  event-service:
     build:
       context: ./services/event-service
     container_name: huddle-event-service
@@ -167,15 +163,11 @@ event-service:
     networks:
       - huddle-net
 
-# =========================
 # VOLUMES
-# =========================
 volumes:
   postgres_data:
 
-# =========================
 # NETWORK
-# =========================
 networks:
   huddle-net:
     driver: bridge

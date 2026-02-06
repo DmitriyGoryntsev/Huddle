@@ -1,12 +1,29 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-  html {
-    @apply antialiased;
-  }
-  body {
-    @apply bg-stone-50 text-stone-900;
-  }
+@theme {
+  /* Твоя кастомная палитра */
+  --color-huddle-sage: #A5C89E;
+  --color-huddle-yellow: #FFFBB1;
+  --color-huddle-lime: #D8E983;
+  --color-huddle-olive: #AEB877;
+  --color-huddle-dark: #121212;
+  --color-huddle-gray: #1E1E1E;
+}
+
+:root {
+  background-color: #121212;
+  color: #FFFBB1;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Стили для кастомных балунов Яндекса */
+.ymaps-2-1-79-balloon {
+  background: #1E1E1E !important;
+  border: 1px solid #A5C89E !important;
+  border-radius: 12px !important;
 }
